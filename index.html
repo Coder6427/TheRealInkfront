@@ -14,6 +14,7 @@
       <a class="brand" href="#" aria-label="Inkfront Arena"><span class="brand-mark">◈</span><span><strong>INKFRONT</strong><small>ARENA</small></span></a>
       <span id="formatBadge" class="format-badge">TEAM PAINTSPORT</span>
       <nav class="top-actions" aria-label="Game options">
+        <button id="mobileBtn" class="icon-button" type="button" aria-pressed="false" title="Toggle mobile controls"><span class="button-icon">▣</span><span class="button-label">Mobile mode</span></button>
         <button id="lockBtn" class="icon-button" type="button" aria-pressed="true" title="Auto-lock (Q)"><span class="button-icon">◇</span><span class="button-label">Aim assist</span></button>
         <button id="aiLensBtn" class="icon-button" type="button" aria-pressed="false" title="AI lens (B)"><span class="button-icon">⌁</span><span class="button-label">AI lens</span></button>
         <button id="soundBtn" class="icon-button" type="button" aria-pressed="true" title="Sound (M)"><span class="button-icon">◖</span><span class="button-label">Sound</span></button>
@@ -53,6 +54,7 @@
           <button id="specialBtn" class="ability-button special-button" type="button"><kbd>F</kbd><span><small>SPECIAL</small><strong id="specialName">Prism bloom</strong><b id="specialStatus">25%</b></span></button>
           <div class="dash-status"><div id="dashRing"><kbd>SPACE</kbd></div><strong id="dashText">DASH READY</strong></div>
         </div>
+        <div id="safeNotice" class="safe-notice" hidden><strong>⬡ SAFE ZONE · FAST RECOVERY</strong><span>Leave the ring to fire</span></div>
         <div id="respawnNotice" class="respawn-notice" hidden><small>RESPAWNING · FOLLOWING YOUR SQUAD</small><strong id="respawnTimer">3.0</strong></div>
       </section>
 
@@ -85,6 +87,14 @@
                     <button type="button" data-mode="clash" aria-pressed="false"><strong>Team Clash</strong><small>First to 15 disables</small></button>
                   </div>
                 </fieldset>
+                <fieldset><legend>MAP</legend>
+                  <div class="map-picker choice-grid" role="group" aria-label="Choose a map">
+                    <button type="button" data-map="switchyard" class="selected" aria-pressed="true"><strong>Switchyard</strong><small>Industrial lanes</small></button>
+                    <button type="button" data-map="crescent" aria-pressed="false"><strong>Crescent Court</strong><small>Half-moon cover</small></button>
+                    <button type="button" data-map="breakwater" aria-pressed="false"><strong>Breakwater</strong><small>Winding docks</small></button>
+                    <button type="button" data-map="random" aria-pressed="false"><strong>↝ Random</strong><small>Surprise me</small></button>
+                  </div>
+                </fieldset>
                 <div class="settings-row">
                   <fieldset><legend>YOUR TEAM</legend><div class="team-picker choice-grid" role="group" aria-label="Your team">
                     <button type="button" class="team-choice cyan-choice selected" data-team="1" aria-pressed="true"><strong>◇ Volt</strong><i>SELECTED</i></button>
@@ -98,9 +108,9 @@
                 </div>
               </div>
               <aside class="arena-card">
-                <div class="arena-diagram" aria-hidden="true"><span class="spawn spawn-a">◇</span><i class="cover cover-a"></i><i class="cover cover-b"></i><i class="cover cover-c"></i><i class="cover cover-d"></i><span class="arena-center">+</span><span class="spawn spawn-b">●</span></div>
+                <canvas id="arenaPreview" class="arena-preview" width="320" height="180" aria-label="Map layout preview with protected team spawn zones"></canvas>
                 <small>AUTO-SIZED ARENA</small><h2 id="mapName">Switchyard</h2><b id="mapDimensions">Standard · 1,600 × 900</b><p id="mapDetail">Room for a partner and coordinated flanks.</p>
-                <div class="arena-note">3v3 and 4v4 automatically use larger maps.</div>
+                <div class="arena-note">Cover shifts a little each round. 3v3 and 4v4 use larger arenas. Colored rings are protected spawn zones.</div>
               </aside>
             </div>
           </section>

@@ -87,7 +87,7 @@ function addAbilityEffect(agent, type, point, radius, life, extra = {}) {
 }
 
 function useSecondary(agent) {
-  if (!agent?.alive || agent.secondaryCd > 0 || agent.ammo < 20 || agent.dashTime > 0) return false;
+  if (!agent?.alive || isInOwnSafeZone(agent) || agent.secondaryCd > 0 || agent.ammo < 20 || agent.dashTime > 0) return false;
   const hero = characterOf(agent);
   const point = abilityAimPoint(agent, agent.characterId === 'rook' ? 120 : agent.characterId === 'miso' ? 90 : 245);
   agent.ammo -= 20;
@@ -105,7 +105,7 @@ function useSecondary(agent) {
 }
 
 function useSpecial(agent) {
-  if (!agent?.alive || agent.specialCharge < 100) return false;
+  if (!agent?.alive || isInOwnSafeZone(agent) || agent.specialCharge < 100) return false;
   const hero = characterOf(agent);
   agent.specialCharge = 0;
   agent.specialUses += 1;
@@ -164,6 +164,7 @@ function updateAbilityEffects(dt) {
       if (effect.type !== 'citadel') paintAt(effect.x, effect.y, effect.radius * 0.85, effect.team, false);
       for (const target of state.agents) {
         if (!target.alive || dist(target, effect) > effect.radius || !hasLineOfSight(effect, target)) continue;
+        if (target.team !== effect.team && isInOwnSafeZone(target)) continue;
         if (target.team === effect.team) {
           if (['seedling', 'citadel', 'garden'].includes(effect.type)) {
             target.hp = Math.min(target.maxHp, target.hp + (effect.type === 'garden' ? 3 : 2.4));

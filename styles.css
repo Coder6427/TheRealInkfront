@@ -56,6 +56,10 @@ legend,.section-label { color:var(--muted); font:700 9px ui-monospace,monospace;
 .size-picker button { min-height:76px; }
 .size-picker strong { font-size:23px; letter-spacing:-.06em; }
 .mode-picker { grid-template-columns:repeat(3,1fr); }
+.map-picker { grid-template-columns:repeat(4,1fr); }
+.map-picker button { min-height:65px; }
+.map-picker strong { font-size:10px; }
+.arena-preview { display:block; width:100%; height:auto; aspect-ratio:16/9; border:1px solid var(--line); border-radius:5px; margin-bottom:18px; }
 .mode-picker button { min-height:66px; }
 .settings-row { display:grid; grid-template-columns:1fr 1.25fr; gap:18px; }
 .settings-row fieldset { margin-bottom:0; }
@@ -144,6 +148,21 @@ legend,.section-label { color:var(--muted); font:700 9px ui-monospace,monospace;
 .modal-overlay { position:absolute; inset:0; z-index:30; display:grid; place-items:center; padding:20px; background:rgba(8,12,24,.9); overflow:auto; }
 .modal-card { width:min(430px,100%); padding:32px; text-align:center; border:1px solid var(--line); border-radius:12px; background:var(--panel); }.eyebrow { color:var(--muted); font:700 8px ui-monospace,monospace; letter-spacing:.08em; }.modal-card h2 { font-size:32px; line-height:1.1; letter-spacing:-.04em; margin:16px 0 12px; }.modal-card p { color:var(--muted); font-size:12px; line-height:1.7; }.modal-card .primary-button { display:block; width:100%; margin-top:22px; }.modal-card .text-button { display:block; margin:12px auto 0; }.result-score { display:grid; grid-template-columns:1fr auto 1fr; gap:22px; align-items:center; margin:25px 0; }.result-score > div { display:grid; gap:8px; }.result-score small { color:var(--muted); font-size:9px; }.result-score strong { font-size:33px; letter-spacing:-.04em; }.result-score > span { color:var(--muted); font-size:10px; }.result-cyan strong { color:var(--cyan); }.result-coral strong { color:var(--coral); }
 .mobile-controls { display:none; }
+.safe-notice { position:absolute; bottom:119px; left:50%; transform:translateX(-50%); display:grid; gap:5px; padding:9px 15px; text-align:center; background:rgba(9,24,32,.94); border:1px solid rgba(40,224,214,.5); border-radius:7px; white-space:nowrap; }
+.safe-notice strong { color:var(--cyan); font:750 8px ui-monospace,monospace; }.safe-notice span { color:var(--muted); font-size:9px; }
+body.touch-mode .mobile-controls { display:flex; position:absolute; bottom:0; left:0; right:0; align-items:flex-end; justify-content:space-between; padding:14px 30px max(16px,env(safe-area-inset-bottom)); z-index:8; pointer-events:none; }
+body.touch-mode .touch-stick { position:relative; width:86px; height:86px; border-radius:50%; border:1px solid rgba(255,255,255,.25); background:rgba(9,13,26,.65); pointer-events:auto; touch-action:none; }
+body.touch-mode .touch-stick span { position:absolute; top:-15px; left:50%; transform:translateX(-50%); color:var(--muted); font-size:7px; white-space:nowrap; }
+body.touch-mode .touch-stick i { position:absolute; width:28px; height:28px; top:50%; left:50%; margin:-14px; border:2px solid var(--cyan); border-radius:50%; background:rgba(255,255,255,.8); }
+body.touch-mode #aimStick i { border-color:var(--coral); }
+body.touch-mode #mobileDash { width:54px; height:54px; margin-bottom:8px; border-radius:50%; border:1px solid var(--acid); color:var(--acid); background:rgba(9,13,26,.85); font-size:8px; font-weight:750; pointer-events:auto; touch-action:none; }
+body.touch-mode .combat-deck { bottom:max(119px,calc(env(safe-area-inset-bottom) + 112px)); }
+body.touch-mode .safe-notice { bottom:max(225px,calc(env(safe-area-inset-bottom) + 218px)); }
+body.touch-mode .control-deck,body.touch-mode .dash-status { display:none; }
+body.touch-mode .combat-deck { grid-template-columns:205px 155px 155px; }
+body.touch-mode .game-frame { height:calc(100svh - 82px); }
+body:not(.touch-mode) .mobile-controls { display:none; }
+body:not(.touch-mode) .combat-deck { bottom:16px; }
 @media (max-width:1000px) {
   .setup-shell { width:calc(100% - 44px); }.match-layout { grid-template-columns:minmax(0,1fr) 210px; gap:18px; }.settings-row { gap:12px; }
   .format-badge { display:none; }.control-deck { gap:16px; }.combat-deck { grid-template-columns:180px 140px 140px 75px; }
@@ -153,6 +172,13 @@ legend,.section-label { color:var(--muted); font:700 9px ui-monospace,monospace;
   .game-frame { height:calc(100svh - 52px); min-height:0; max-height:none; border-radius:0; border-width:1px 0 0; }.control-deck { display:none; }
   .setup-shell { width:calc(100% - 32px); margin:22px auto 30px; }.setup-steps { gap:10px; margin-bottom:21px; }.setup-steps button { font-size:10px; }.setup-steps b { width:24px; height:24px; font-size:8px; }.setup-heading { margin-bottom:21px; }.setup-heading h1 { font-size:26px; }.setup-heading p { font-size:11px; }
   .match-layout { grid-template-columns:1fr; gap:18px; }.arena-card { padding:13px; }.arena-diagram { display:none; }.arena-card h2 { display:inline-block; font-size:16px; margin:0 10px 5px 0; }.arena-card > small { display:none; }.arena-card > b { white-space:nowrap; }.arena-card p { margin:6px 0; }.arena-note { display:none; }
+  .arena-preview { width:112px; float:right; margin:0 0 0 12px; }.arena-card { display:flow-root; }.map-picker strong { font-size:9px; }
+  body.touch-mode .game-frame { height:calc(100svh - 52px); }
+  body.touch-mode .combat-deck { grid-template-columns:1.3fr 1fr 1fr; bottom:max(108px,calc(env(safe-area-inset-bottom) + 101px)); }
+  body.touch-mode .mobile-controls { padding:10px 20px max(15px,env(safe-area-inset-bottom)); }
+  body.touch-mode .touch-stick { width:74px; height:74px; }
+  body.touch-mode .safe-notice { bottom:max(206px,calc(env(safe-area-inset-bottom) + 199px)); }
+  .safe-notice { bottom:109px; }
   .choice-grid button { padding:11px 8px; }.size-picker button { min-height:68px; }.size-picker strong { font-size:22px; }.mode-picker button { min-height:63px; }.choice-grid strong { font-size:10px; }.size-picker strong { font-size:22px; }.choice-grid small { font-size:8px; }.difficulty-picker button { font-size:8px; padding:8px 4px; }
   .settings-row { gap:12px; }.setup-footer { align-items:flex-start; flex-direction:column; gap:15px; margin-top:22px; }.setup-footer-actions { width:100%; justify-content:space-between; }.setup-footer .primary-button { margin-left:auto; }.setup-footer p { font-size:9px; }.setup-page { min-height:0; }
   .character-layout { grid-template-columns:1fr; gap:18px; }.character-choice { min-height:92px; }.character-portrait { width:32px; height:32px; font-size:23px; }.character-details { padding:16px; }.weapon-row p { font-size:11px; }

@@ -5,11 +5,17 @@ const WORLD = { w: 1600, h: 900 };
 const CELL = 25;
 let COLS = WORLD.w / CELL;
 let ROWS = WORLD.h / CELL;
-const NAV = 80;
+const NAV = 50;
 let NAV_COLS = Math.ceil(WORLD.w / NAV);
 let NAV_ROWS = Math.ceil(WORLD.h / NAV);
 const MATCH_LENGTH = 90;
 const VISION_RADIUS = 315;
+const SAFE_RADIUS = 150;
+const MAPS = {
+  switchyard: { name: 'Switchyard', note: 'Industrial lanes, movable crates, and broad central crossings.', floor: '#191d35', edge: '#14182d', accent: '#97a9c9' },
+  crescent: { name: 'Crescent Court', note: 'Half-moon shelters and open gardens. Duck inside a curve, then flank around it.', floor: '#172c30', edge: '#102125', accent: '#87cdb4' },
+  breakwater: { name: 'Breakwater', note: 'Staggered dock lanes and curved bunkers create a winding fight through the middle.', floor: '#24253a', edge: '#181a30', accent: '#b7a5e4' },
+};
 const MATCH_SIZES = {
   1: { name: 'Duel yard', label: 'Compact', w: 1200, h: 750, note: 'A focused arena for one-on-one fights.' },
   2: { name: 'Switchyard', label: 'Standard', w: 1600, h: 900, note: 'Room for a partner and coordinated flanks.' },
@@ -124,6 +130,9 @@ const dom = {
   mapDetail: document.querySelector('#mapDetail'),
   mapDimensions: document.querySelector('#mapDimensions'),
   formatBadge: document.querySelector('#formatBadge'),
+  mobileBtn: document.querySelector('#mobileBtn'),
+  arenaPreview: document.querySelector('#arenaPreview'),
+  safeNotice: document.querySelector('#safeNotice'),
 };
 
 const state = {
@@ -131,6 +140,12 @@ const state = {
   previousMode: 'playing',
   matchMode: 'turf',
   teamSize: 2,
+  mapChoice: 'switchyard',
+  activeMap: 'switchyard',
+  lastRandomMap: null,
+  layoutSeed: 1,
+  layoutVariant: 1,
+  mobileControls: matchMedia('(pointer: coarse)').matches,
   setupStep: 'match',
   playerTeam: 1,
   characterId: 'vex',
@@ -194,6 +209,7 @@ const input = {
 
 const view = { dpr: 1, width: 0, height: 0, scale: 1, ox: 0, oy: 0, visibleW: WORLD.w, visibleH: WORLD.h };
 const minimapCtx = dom.minimapCanvas.getContext('2d');
+const previewCtx = dom.arenaPreview.getContext('2d');
 const fogCanvas = document.createElement('canvas');
 const fogCtx = fogCanvas.getContext('2d');
 
@@ -324,8 +340,105 @@ function worldToScreen(x, y) {
   return { x: x * view.scale + view.ox, y: y * view.scale + view.oy };
 }
 
+function closestOnSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const t = clamp(((px - x1) * dx + (py - y1) * dy) / Math.max(0.0001, dx * dx + dy * dy), 0, 1);
+  return { x: x1 + dx * t, y: y1 + dy * t };
+}
+
+function closestOnArc(x, y, arc) {
+  const full = Math.PI * 2;
+  const angle = Math.atan2(y - arc.cy, x - arc.cx);
+  const relative = ((angle - arc.start) % full + full) % full;
+  let selected = angle;
+  if (relative > arc.span) {
+    const a = { x: arc.cx + Math.cos(arc.start) * arc.r, y: arc.cy + Math.sin(arc.start) * arc.r };
+    const b = { x: arc.cx + Math.cos(arc.start + arc.span) * arc.r, y: arc.cy + Math.sin(arc.start + arc.span) * arc.r };
+    return Math.hypot(x - a.x, y - a.y) < Math.hypot(x - b.x, y - b.y) ? a : b;
+  }
+  return { x: arc.cx + Math.cos(selected) * arc.r, y: arc.cy + Math.sin(selected) * arc.r };
+}
+
+function obstacleContains(o, x, y, pad = 0) {
+  if (x < o.x - pad || x > o.x + o.w + pad || y < o.y - pad || y > o.y + o.h + pad) return false;
+  if (o.kind !== 'arc') return true;
+  const nearest = closestOnArc(x, y, o);
+  return Math.hypot(x - nearest.x, y - nearest.y) < o.thickness / 2 + pad;
+}
+
 function pointInObstacle(x, y, pad = 0) {
-  return obstacles.some((o) => x > o.x - pad && x < o.x + o.w + pad && y > o.y - pad && y < o.y + o.h + pad);
+  return obstacles.some((o) => obstacleContains(o, x, y, pad));
+}
+
+function pointInSafeZone(point, team) {
+  const base = TEAM[team];
+  return Math.hypot(point.x - base.spawnX, point.y - base.spawnY) <= SAFE_RADIUS;
+}
+
+function isInOwnSafeZone(agent) { return pointInSafeZone(agent, agent.team); }
+
+function seededRandom(seed) {
+  let value = seed >>> 0;
+  return () => {
+    value += 0x6D2B79F5;
+    let n = value;
+    n = Math.imul(n ^ n >>> 15, n | 1);
+    n ^= n + Math.imul(n ^ n >>> 7, n | 61);
+    return ((n ^ n >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+function buildMapLayout(mapId, width, height, teamSize, seed) {
+  const random = seededRandom(seed);
+  const result = [];
+  const scale = teamSize === 1 ? 0.82 : 1;
+  const jitterX = (random() - 0.5) * 34;
+  const jitterY = (random() - 0.5) * 32;
+  const arc = (cx, cy, radius, start, span = Math.PI) => {
+    const r = radius * scale;
+    const thickness = 28 * scale;
+    const o = { kind: 'arc', cx, cy, r, start, span, thickness, x: cx - r - thickness / 2, y: cy - r - thickness / 2, w: 2 * r + thickness, h: 2 * r + thickness, segments: [] };
+    for (let i = 0; i < 14; i += 1) {
+      const a = start + span * i / 14;
+      const b = start + span * (i + 1) / 14;
+      o.segments.push({ x1: cx + Math.cos(a) * r, y1: cy + Math.sin(a) * r, x2: cx + Math.cos(b) * r, y2: cy + Math.sin(b) * r });
+    }
+    result.push(o);
+  };
+  const box = (cx, cy, w, h, kind = 'crate') => result.push({ x: cx - w * scale / 2, y: cy - h * scale / 2, w: w * scale, h: h * scale, kind });
+  if (mapId === 'switchyard') {
+    for (const o of BASE_OBSTACLES.filter((item) => teamSize > 1 || item.kind !== 'tank')) {
+      const side = o.x + o.w / 2 < 800 ? 1 : -1;
+      const vertical = o.y + o.h / 2 < 450 ? 1 : -1;
+      const laneY = o.kind === 'bridge' ? height * (vertical === 1 ? 0.25 : 0.75) : (o.y + o.h / 2) / 900 * height;
+      box((o.x + o.w / 2) / 1600 * width + side * jitterX, laneY + vertical * jitterY, o.w, o.h, o.kind);
+    }
+  } else if (mapId === 'crescent') {
+    const tilt = (random() - 0.5) * 0.25;
+    for (const y of [0.29, 0.71]) {
+      arc(width * 0.31 + jitterX, height * y + (y < 0.5 ? jitterY : -jitterY), 100, Math.PI / 2 + tilt);
+      arc(width * 0.69 - jitterX, height * y + (y < 0.5 ? jitterY : -jitterY), 100, -Math.PI / 2 - tilt);
+    }
+    for (const y of [0.34, 0.66]) box(width / 2, height * y, 126 + random() * 22, 34, 'bridge');
+    box(width * 0.22, height / 2 - jitterY, 64, 104);
+    box(width * 0.78, height / 2 - jitterY, 64, 104);
+  } else {
+    for (const side of [-1, 1]) {
+      arc(width / 2 + side * width * 0.135, height / 2, 105, side < 0 ? Math.PI / 2 : -Math.PI / 2);
+      for (const y of [0.28, 0.72]) {
+        box(width / 2 + side * width * 0.27 + side * jitterX, height * y + (y < 0.5 ? jitterY : -jitterY), 156, 65, 'bridge');
+        box(width / 2 + side * width * 0.09, height * y, 58, 76, 'crate');
+      }
+    }
+  }
+  if (teamSize >= 3) {
+    const lane = 0.34 + random() * 0.025;
+    for (const side of [-1, 1]) {
+      for (const y of [lane, 1 - lane]) box(width / 2 + side * width * 0.32, height * y, 72, 48);
+    }
+  }
+  return result;
 }
 
 function configureArena() {
@@ -336,28 +449,14 @@ function configureArena() {
   ROWS = WORLD.h / CELL;
   NAV_COLS = Math.ceil(WORLD.w / NAV);
   NAV_ROWS = Math.ceil(WORLD.h / NAV);
-  const coverScale = state.teamSize === 1 ? 0.82 : 1;
-  obstacles = BASE_OBSTACLES.filter((o) => state.teamSize > 1 || o.kind !== 'tank').map((o) => ({
-    ...o,
-    x: (o.x + o.w / 2) / 1600 * WORLD.w - o.w * coverScale / 2,
-    y: (o.y + o.h / 2) / 900 * WORLD.h - o.h * coverScale / 2,
-    w: o.w * coverScale,
-    h: o.h * coverScale,
-  }));
-  if (state.teamSize >= 3) {
-    for (const side of [-1, 1]) {
-      for (const lane of [0.33, 0.67]) {
-        obstacles.push({ x: WORLD.w / 2 + side * WORLD.w * 0.31 - 40, y: WORLD.h * lane - 30, w: 80, h: 60, kind: 'crate' });
-      }
-    }
-  }
+  obstacles = buildMapLayout(state.activeMap, WORLD.w, WORLD.h, state.teamSize, state.layoutSeed);
   TEAM[1].spawnX = 110;
   TEAM[2].spawnX = WORLD.w - 110;
   for (const team of TEAM_IDS) TEAM[team].spawnY = WORLD.h / 2;
   state.paint = new Uint8Array(COLS * ROWS);
   state.paintable = new Uint8Array(COLS * ROWS);
   state.danger = [null, ...TEAM_IDS.map(() => new Float32Array(NAV_COLS * NAV_ROWS))];
-  state.zones = [0.18, 0.5, 0.82].map((y, index) => ({
+  state.zones = [0.13, 0.5, 0.87].map((y, index) => ({
     id: String.fromCharCode(65 + index), x: WORLD.w / 2, y: WORLD.h * y,
     radius: state.teamSize === 1 ? 78 : 96, capture: 0, captureTeam: 0, owner: 0, contested: false,
   }));
@@ -375,7 +474,8 @@ function buildPaintMask() {
       const x = col * CELL + CELL / 2;
       const y = row * CELL + CELL / 2;
       const index = row * COLS + col;
-      const valid = x > 32 && x < WORLD.w - 32 && y > 32 && y < WORLD.h - 32 && !pointInObstacle(x, y, 2);
+      const valid = x > 32 && x < WORLD.w - 32 && y > 32 && y < WORLD.h - 32 && !pointInObstacle(x, y, 2)
+        && !TEAM_IDS.some((team) => pointInSafeZone({ x, y }, team));
       state.paintable[index] = valid ? 1 : 0;
       if (valid) state.totalPaintable += 1;
     }
@@ -383,6 +483,8 @@ function buildPaintMask() {
 }
 
 function paintOwnerAt(x, y) {
+  const base = TEAM_IDS.find((team) => pointInSafeZone({ x, y }, team));
+  if (base) return base;
   const col = clamp(Math.floor(x / CELL), 0, COLS - 1);
   const row = clamp(Math.floor(y / CELL), 0, ROWS - 1);
   return state.paint[row * COLS + col];
@@ -431,7 +533,7 @@ function resetPaint() {
   state.paintCounts = [0, 0, 0];
   for (const team of TEAM_IDS) {
     const base = TEAM[team];
-    paintAt(base.spawnX, base.spawnY, 102, team, false);
+    paintAt(base.spawnX + (team === 1 ? 175 : -175), base.spawnY, 68, team, false);
   }
 }
 
@@ -505,6 +607,13 @@ function makeAgent(team, isPlayer, slot, role) {
 }
 
 function resetMatch() {
+  if (state.mapChoice === 'random') {
+    const choices = Object.keys(MAPS).filter((id) => id !== state.lastRandomMap);
+    state.activeMap = choices[Math.floor(Math.random() * choices.length)];
+    state.lastRandomMap = state.activeMap;
+  } else state.activeMap = state.mapChoice;
+  state.layoutSeed = (Math.floor(Math.random() * 4294967295) + state.layoutSeed + 1) >>> 0;
+  state.layoutVariant = state.layoutSeed % 3 + 1;
   configureArena();
   state.time = MATCH_MODES[state.matchMode].time;
   state.countdown = 3.2;
@@ -565,7 +674,7 @@ function resetMatch() {
   updateTeamRoles();
   updateHUD(true);
   dom.eventFeed.innerHTML = '';
-  addEvent(`${MATCH_MODES[state.matchMode].label} // LINKED`, state.playerTeam, 'acid');
+  addEvent(`${MAPS[state.activeMap].name.toUpperCase()} // LAYOUT ${state.layoutVariant}`, state.playerTeam, 'acid');
   addEvent(state.matchMode === 'zones' ? 'BOTS CLAIMING SECTORS' : state.matchMode === 'clash' ? 'BOTS FORMING HUNT PAIRS' : 'BOTS ASSIGNING LANES', state.playerTeam);
 }
 
@@ -627,10 +736,55 @@ function renderCharacterPicker() {
 
 function updateSetupSummary() {
   const size = MATCH_SIZES[state.teamSize];
-  dom.mapName.textContent = size.name;
-  dom.mapDetail.textContent = size.note;
+  const map = MAPS[state.mapChoice];
+  dom.mapName.textContent = map?.name || 'Random map';
+  dom.mapDetail.textContent = map?.note || 'A surprise pick from all three maps. Random avoids repeating the previous random map.';
   dom.mapDimensions.textContent = `${size.label} · ${size.w.toLocaleString()} × ${size.h.toLocaleString()}`;
-  dom.setupSummary.textContent = `${state.teamSize}v${state.teamSize} · ${MATCH_MODES[state.matchMode].label} · ${CHARACTERS[state.characterId].name} · ${TEAM[state.playerTeam].name}`;
+  dom.setupSummary.textContent = `${state.teamSize}v${state.teamSize} · ${map?.name || 'Random map'} · ${MATCH_MODES[state.matchMode].label} · ${CHARACTERS[state.characterId].name} · ${TEAM[state.playerTeam].name}`;
+  drawArenaPreview();
+}
+
+function drawTacticalTerrain(context, layout, width, height, screenW, screenH) {
+  context.save();
+  context.scale(screenW / width, screenH / height);
+  for (const o of layout) {
+    if (o.kind === 'arc') {
+      context.strokeStyle = '#8294b0';
+      context.lineWidth = o.thickness;
+      context.lineCap = 'round';
+      context.beginPath(); context.arc(o.cx, o.cy, o.r, o.start, o.start + o.span); context.stroke();
+    } else {
+      context.fillStyle = '#535f7d';
+      context.fillRect(o.x, o.y, o.w, o.h);
+    }
+  }
+  for (const team of TEAM_IDS) {
+    const x = team === 1 ? 110 : width - 110;
+    context.fillStyle = `rgba(${TEAM[team].rgb},0.12)`;
+    context.strokeStyle = TEAM[team].color;
+    context.lineWidth = 6;
+    context.beginPath(); context.arc(x, height / 2, SAFE_RADIUS, 0, Math.PI * 2); context.fill(); context.stroke();
+  }
+  context.restore();
+}
+
+function drawArenaPreview() {
+  const mapId = state.mapChoice === 'random' ? 'crescent' : state.mapChoice;
+  const profile = MATCH_SIZES[state.teamSize];
+  const w = dom.arenaPreview.width;
+  const h = dom.arenaPreview.height;
+  previewCtx.clearRect(0, 0, w, h);
+  previewCtx.fillStyle = MAPS[mapId].floor;
+  previewCtx.fillRect(0, 0, w, h);
+  drawTacticalTerrain(previewCtx, buildMapLayout(mapId, profile.w, profile.h, state.teamSize, 157), profile.w, profile.h, w, h);
+  if (state.mapChoice === 'random') {
+    previewCtx.fillStyle = 'rgba(9,13,26,0.58)';
+    previewCtx.fillRect(0, 0, w, h);
+    previewCtx.fillStyle = '#f4f5fa';
+    previewCtx.font = '800 40px system-ui,sans-serif';
+    previewCtx.textAlign = 'center';
+    previewCtx.fillText('?', w / 2, h / 2 + 14);
+  }
 }
 
 function setSetupStep(step) {
@@ -704,7 +858,7 @@ function startMatch() {
   dom.playerName.style.color = TEAM[state.playerTeam].color;
   dom.difficultyBadge.textContent = DIFFICULTY[state.difficulty].label;
   dom.minimapMode.textContent = MATCH_MODES[state.matchMode].short;
-  dom.formatBadge.textContent = `${state.teamSize}v${state.teamSize} · ${MATCH_SIZES[state.teamSize].name}`;
+  dom.formatBadge.textContent = `${state.teamSize}v${state.teamSize} · ${MAPS[state.activeMap].name} · Layout ${state.layoutVariant}`;
   canvas.focus({ preventScroll: true });
 }
 
@@ -781,20 +935,20 @@ function worldFromNav(col, row) {
   return { x: clamp(col * NAV + NAV / 2, 38, WORLD.w - 38), y: clamp(row * NAV + NAV / 2, 38, WORLD.h - 38) };
 }
 
-function navBlocked(col, row) {
+function navBlocked(col, row, team = 0) {
   if (col < 0 || row < 0 || col >= NAV_COLS || row >= NAV_ROWS) return true;
   const p = worldFromNav(col, row);
-  return pointInObstacle(p.x, p.y, 30);
+  return pointInObstacle(p.x, p.y, 24) || (team && TEAM_IDS.some((id) => id !== team && Math.hypot(p.x - TEAM[id].spawnX, p.y - TEAM[id].spawnY) < SAFE_RADIUS + 28));
 }
 
-function nearestOpenNav(col, row) {
-  if (!navBlocked(col, row)) return { col, row };
+function nearestOpenNav(col, row, team = 0) {
+  if (!navBlocked(col, row, team)) return { col, row };
   for (let radius = 1; radius < 5; radius += 1) {
     for (let dy = -radius; dy <= radius; dy += 1) {
       for (let dx = -radius; dx <= radius; dx += 1) {
         const nc = col + dx;
         const nr = row + dy;
-        if (!navBlocked(nc, nr)) return { col: nc, row: nr };
+        if (!navBlocked(nc, nr, team)) return { col: nc, row: nr };
       }
     }
   }
@@ -802,10 +956,12 @@ function nearestOpenNav(col, row) {
 }
 
 function findPath(agent, target) {
+  const hostileBase = TEAM_IDS.find((team) => team !== agent.team && pointInSafeZone(target, team));
+  if (hostileBase) target = { x: TEAM[hostileBase].spawnX + (hostileBase === 1 ? 1 : -1) * (SAFE_RADIUS + 65), y: TEAM[hostileBase].spawnY };
   let start = navFromWorld(agent.x, agent.y);
   let goal = navFromWorld(target.x, target.y);
-  start = nearestOpenNav(start.col, start.row);
-  goal = nearestOpenNav(goal.col, goal.row);
+  start = nearestOpenNav(start.col, start.row, agent.team);
+  goal = nearestOpenNav(goal.col, goal.row, agent.team);
   const startId = navIndex(start.col, start.row);
   const goalId = navIndex(goal.col, goal.row);
   if (startId === goalId) return [target];
@@ -848,7 +1004,8 @@ function findPath(agent, target) {
     for (const [dx, dy] of neighbors) {
       const nc = col + dx;
       const nr = row + dy;
-      if (navBlocked(nc, nr)) continue;
+      if (navBlocked(nc, nr, agent.team)) continue;
+      if (dx && dy && (navBlocked(col + dx, row, agent.team) || navBlocked(col, row + dy, agent.team))) continue;
       const id = navIndex(nc, nr);
       if (closed[id]) continue;
       const point = worldFromNav(nc, nr);
@@ -897,7 +1054,29 @@ function lineHitsRect(x1, y1, x2, y2, rect, pad = 0) {
 }
 
 function hasLineOfSight(a, b) {
-  return !obstacles.some((rect) => lineHitsRect(a.x, a.y, b.x, b.y, rect, 5));
+  return !obstacles.some((o) => lineHitsObstacle(a.x, a.y, b.x, b.y, o, 5));
+}
+
+function segmentDistanceSquared(ax, ay, bx, by, cx, cy, dx, dy) {
+  const cross = (ux, uy, vx, vy) => ux * vy - uy * vx;
+  const denominator = cross(bx - ax, by - ay, dx - cx, dy - cy);
+  if (Math.abs(denominator) > 0.00001) {
+    const t = cross(cx - ax, cy - ay, dx - cx, dy - cy) / denominator;
+    const u = cross(cx - ax, cy - ay, bx - ax, by - ay) / denominator;
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) return 0;
+  }
+  const a = closestOnSegment(ax, ay, cx, cy, dx, dy);
+  const b = closestOnSegment(bx, by, cx, cy, dx, dy);
+  const c = closestOnSegment(cx, cy, ax, ay, bx, by);
+  const d = closestOnSegment(dx, dy, ax, ay, bx, by);
+  return Math.min((ax - a.x) ** 2 + (ay - a.y) ** 2, (bx - b.x) ** 2 + (by - b.y) ** 2, (cx - c.x) ** 2 + (cy - c.y) ** 2, (dx - d.x) ** 2 + (dy - d.y) ** 2);
+}
+
+function lineHitsObstacle(x1, y1, x2, y2, obstacle, pad = 0) {
+  if (!lineHitsRect(x1, y1, x2, y2, obstacle, pad)) return false;
+  if (obstacle.kind !== 'arc') return true;
+  const radiusSquared = (obstacle.thickness / 2 + pad + 0.6) ** 2;
+  return obstacle.segments.some((s) => segmentDistanceSquared(x1, y1, x2, y2, s.x1, s.y1, s.x2, s.y2) <= radiusSquared);
 }
 
 function hasDirectVision(observer, point, radius = VISION_RADIUS) {
@@ -931,11 +1110,11 @@ function selectAutoLock(player, manualAngle, dt) {
   }
   const now = performance.now() / 1000;
   const previous = state.agents.find((a) => a.id === state.lockTargetId && a.alive && a.team !== player.team);
-  const validPrevious = previous && hasDirectVision(player, previous, VISION_RADIUS);
+  const validPrevious = previous && !isInOwnSafeZone(previous) && hasDirectVision(player, previous, VISION_RADIUS);
   let best = null;
   let bestScore = Infinity;
   for (const enemy of state.agents) {
-    if (!enemy.alive || enemy.team === player.team || enemy.shield > 0) continue;
+    if (!enemy.alive || enemy.team === player.team || enemy.shield > 0 || isInOwnSafeZone(enemy)) continue;
     const d = dist(player, enemy);
     if (d > VISION_RADIUS || !hasDirectVision(player, enemy, VISION_RADIUS)) continue;
     const bearing = Math.atan2(enemy.y - player.y, enemy.x - player.x);
@@ -970,7 +1149,7 @@ function nearestEnemyDistance(agent, point = agent) {
 function visibleEnemies(bot) {
   const result = [];
   for (const enemy of state.agents) {
-    if (!enemy.alive || enemy.team === bot.team) continue;
+    if (!enemy.alive || enemy.team === bot.team || isInOwnSafeZone(enemy)) continue;
     const d = dist(bot, enemy);
     if (d > VISION_RADIUS) continue;
     const bearing = Math.atan2(enemy.y - bot.y, enemy.x - bot.x);
@@ -1018,6 +1197,7 @@ function samplePaintTarget(bot) {
 }
 
 function sampleSafePoint(bot) {
+  if (bot.hp < bot.maxHp * 0.4 || bot.ammo < 12) return { x: bot.spawnX, y: bot.spawnY };
   let best = { x: bot.spawnX, y: bot.spawnY };
   let bestScore = -999;
   for (let i = 0; i < 34; i += 1) {
@@ -1257,6 +1437,18 @@ function resolveMapCollision(agent) {
   agent.x = clamp(agent.x, 28, WORLD.w - 28);
   agent.y = clamp(agent.y, 28, WORLD.h - 28);
   for (const o of obstacles) {
+    if (o.kind === 'arc') {
+      if (!obstacleContains(o, agent.x, agent.y, agent.radius)) continue;
+      const nearest = closestOnArc(agent.x, agent.y, o);
+      let dx = agent.x - nearest.x;
+      let dy = agent.y - nearest.y;
+      let distance = Math.hypot(dx, dy);
+      if (distance < 0.001) { dx = agent.x - o.cx; dy = agent.y - o.cy; distance = Math.hypot(dx, dy) || 1; }
+      const push = agent.radius + o.thickness / 2 - Math.hypot(agent.x - nearest.x, agent.y - nearest.y) + 0.2;
+      agent.x += dx / distance * push;
+      agent.y += dy / distance * push;
+      continue;
+    }
     const closestX = clamp(agent.x, o.x, o.x + o.w);
     const closestY = clamp(agent.y, o.y, o.y + o.h);
     const dx = agent.x - closestX;
@@ -1280,6 +1472,26 @@ function resolveMapCollision(agent) {
       else agent.y = o.y + o.h + agent.radius;
     }
   }
+  for (const team of TEAM_IDS) {
+    if (team === agent.team) continue;
+    const base = TEAM[team];
+    const dx = agent.x - base.spawnX;
+    const dy = agent.y - base.spawnY;
+    const distance = Math.hypot(dx, dy);
+    if (distance < SAFE_RADIUS + agent.radius) {
+      const angle = distance > 0.001 ? Math.atan2(dy, dx) : team === 1 ? 0 : Math.PI;
+      const radius = SAFE_RADIUS + agent.radius + 0.2;
+      agent.x = base.spawnX + Math.cos(angle) * radius;
+      agent.y = base.spawnY + Math.sin(angle) * radius;
+      if (agent.x < 28 || agent.x > WORLD.w - 28) {
+        agent.x = clamp(agent.x, 28, WORLD.w - 28);
+        const horizontal = agent.x - base.spawnX;
+        agent.y = base.spawnY + (dy >= 0 ? 1 : -1) * Math.sqrt(Math.max(0, radius * radius - horizontal * horizontal));
+      }
+    }
+  }
+  agent.x = clamp(agent.x, 28, WORLD.w - 28);
+  agent.y = clamp(agent.y, 28, WORLD.h - 28);
 }
 
 function moveAgent(agent, direction, baseSpeed, dt) {
@@ -1322,7 +1534,7 @@ function tryDash(agent, direction) {
 function tryShoot(agent) {
   const hero = characterOf(agent);
   const cost = 3.2 * (upgradeIs(agent, 'reservoir') ? 0.7 : 1);
-  if (!agent.alive || agent.shotCd > 0 || agent.ammo < cost || agent.dashTime > 0) return false;
+  if (!agent.alive || isInOwnSafeZone(agent) || agent.shotCd > 0 || agent.ammo < cost || agent.dashTime > 0) return false;
   const speed = hero.speed;
   const spread = agent.isPlayer ? (Math.random() - 0.5) * 0.018 : (Math.random() - 0.5) * 0.025;
   const angle = agent.angle + spread;
@@ -1346,7 +1558,7 @@ function tryShoot(agent) {
 }
 
 function damageAgent(target, amount, projectile) {
-  if (!target.alive || target.shield > 0) return;
+  if (!target.alive || target.shield > 0 || isInOwnSafeZone(target)) return;
   const protectedByDome = state.effects.some((effect) => effect.type === 'citadel' && effect.life > 0 && effect.team === target.team && dist(target, effect) < effect.radius && hasLineOfSight(effect, target));
   if (protectedByDome) amount *= 0.35;
   if (target.overdrive > 0) amount *= 0.65;
@@ -1425,6 +1637,12 @@ function updateAgentTimers(agent, dt) {
   }
   const owner = paintOwnerAt(agent.x, agent.y);
   specialGain(agent, dt * 2.25);
+  if (isInOwnSafeZone(agent)) {
+    agent.hp = Math.min(agent.maxHp, agent.hp + 35 * dt);
+    agent.ammo = Math.min(100, agent.ammo + 55 * dt);
+    agent.slowTime = 0;
+    return;
+  }
   if (!agent.firing) {
     const regen = (owner === agent.team ? 26 : 13) * (upgradeIs(agent, 'reservoir') ? 1.25 : 1);
     agent.ammo = Math.min(100, agent.ammo + regen * dt);
@@ -1469,7 +1687,7 @@ function updatePlayer(player, dt) {
   const movement = normalize(mx, my);
   const manualAngle = input.aimTouch.active
     ? Math.atan2(input.aimTouch.y, input.aimTouch.x)
-    : Math.atan2(input.mouseY - player.y, input.mouseX - player.x);
+    : state.mobileControls && !input.pointerInside ? player.angle : Math.atan2(input.mouseY - player.y, input.mouseX - player.x);
   const locked = selectAutoLock(player, manualAngle, dt);
   if (locked) {
     const flight = dist(player, locked) / characterOf(player).speed;
@@ -1590,12 +1808,26 @@ function updateProjectiles(dt) {
     p.x += p.vx * dt;
     p.y += p.vy * dt;
     let impact = p.life <= 0 || p.x < 25 || p.x > WORLD.w - 25 || p.y < 25 || p.y > WORLD.h - 25;
-    const hitWall = obstacles.find((o) => lineHitsRect(oldX, oldY, p.x, p.y, o, p.radius));
+    const hostileBase = TEAM_IDS.find((team) => team !== p.team && (() => {
+      const base = TEAM[team];
+      const closest = closestOnSegment(base.spawnX, base.spawnY, oldX, oldY, p.x, p.y);
+      return Math.hypot(closest.x - base.spawnX, closest.y - base.spawnY) < SAFE_RADIUS + p.radius;
+    })());
+    if (hostileBase) { state.projectiles.splice(i, 1); continue; }
+    const hitWall = obstacles.find((o) => lineHitsObstacle(oldX, oldY, p.x, p.y, o, p.radius));
     const hitBoundary = p.x < 25 || p.x > WORLD.w - 25 || p.y < 25 || p.y > WORLD.h - 25;
     if (p.bounces > 0 && p.life > 0 && (hitWall || hitBoundary)) {
       if (hitWall) {
-        const outsideX = oldX < hitWall.x - p.radius || oldX > hitWall.x + hitWall.w + p.radius;
-        if (outsideX) p.vx *= -1; else p.vy *= -1;
+        if (hitWall.kind === 'arc') {
+          const nearest = closestOnArc(oldX, oldY, hitWall);
+          const normal = normalize(oldX - nearest.x, oldY - nearest.y);
+          const projection = p.vx * normal.x + p.vy * normal.y;
+          p.vx -= 2 * projection * normal.x;
+          p.vy -= 2 * projection * normal.y;
+        } else {
+          const outsideX = oldX < hitWall.x - p.radius || oldX > hitWall.x + hitWall.w + p.radius;
+          if (outsideX) p.vx *= -1; else p.vy *= -1;
+        }
       } else {
         if (p.x < 25 || p.x > WORLD.w - 25) p.vx *= -1;
         if (p.y < 25 || p.y > WORLD.h - 25) p.vy *= -1;
@@ -1812,8 +2044,14 @@ function updateHUD(force = false) {
     dom.secondaryStatus.textContent = !player.alive ? 'REBOOTING' : player.secondaryCd > 0 ? `${player.secondaryCd.toFixed(1)}s` : player.ammo < 20 ? 'NEED 20 INK' : 'READY';
     dom.specialName.textContent = hero.special;
     dom.specialStatus.textContent = player.overdrive > 0 ? `ACTIVE ${player.overdrive.toFixed(1)}s` : player.specialCharge >= 100 ? 'UNLEASH' : `${Math.floor(player.specialCharge)}%`;
-    dom.secondaryBtn.disabled = state.mode !== 'playing' || state.countdown > 0 || !player.alive || player.secondaryCd > 0 || player.ammo < 20;
-    dom.specialBtn.disabled = state.mode !== 'playing' || state.countdown > 0 || !player.alive || player.specialCharge < 100;
+    const safe = player.alive && isInOwnSafeZone(player);
+    dom.safeNotice.hidden = !safe;
+    if (safe) {
+      dom.secondaryStatus.textContent = 'LEAVE SAFE ZONE';
+      dom.specialStatus.textContent = 'LEAVE SAFE ZONE';
+    }
+    dom.secondaryBtn.disabled = safe || state.mode !== 'playing' || state.countdown > 0 || !player.alive || player.secondaryCd > 0 || player.ammo < 20;
+    dom.specialBtn.disabled = safe || state.mode !== 'playing' || state.countdown > 0 || !player.alive || player.specialCharge < 100;
     dom.specialBtn.classList.toggle('charged', player.specialCharge >= 100);
     dom.specialBtn.style.setProperty('--charge', `${player.specialCharge}%`);
     dom.upgradeBadge.textContent = UPGRADES.find((upgrade) => upgrade.id === player.upgradeId)?.name || '';
@@ -1845,10 +2083,11 @@ function renderAICards() {
 }
 
 function drawArena() {
-  ctx.fillStyle = '#14182d';
+  const palette = MAPS[state.activeMap];
+  ctx.fillStyle = palette.edge;
   ctx.fillRect(0, 0, WORLD.w, WORLD.h);
 
-  ctx.fillStyle = '#191d35';
+  ctx.fillStyle = palette.floor;
   ctx.fillRect(28, 28, WORLD.w - 56, WORLD.h - 56);
 
   ctx.strokeStyle = 'rgba(255,255,255,0.035)';
@@ -1956,13 +2195,24 @@ function drawSpawnPad(team) {
   const color = TEAM[team].color;
   ctx.save();
   ctx.translate(x, TEAM[team].spawnY);
+  ctx.fillStyle = `rgba(${TEAM[team].rgb},0.1)`;
+  ctx.beginPath(); ctx.arc(0, 0, SAFE_RADIUS, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = color;
-  ctx.globalAlpha = 0.66;
+  ctx.globalAlpha = 0.8;
   ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.arc(0, 0, 68, 0, Math.PI * 2); ctx.stroke();
-  ctx.globalAlpha = 0.22;
-  ctx.lineWidth = 18;
-  ctx.beginPath(); ctx.arc(0, 0, 49, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([14, 7]);
+  ctx.beginPath(); ctx.arc(0, 0, SAFE_RADIUS, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 0.2;
+  ctx.lineWidth = 10;
+  ctx.beginPath(); ctx.arc(0, 0, SAFE_RADIUS - 9, 0, Math.PI * 2); ctx.stroke();
+  ctx.globalAlpha = 0.9;
+  ctx.font = '800 9px ui-monospace, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = color;
+  ctx.fillText('SAFE ZONE', 0, -42);
+  ctx.font = '600 7px ui-monospace, monospace';
+  ctx.fillText('HEAL + RELOAD', 0, 44);
   ctx.globalAlpha = 0.7;
   ctx.fillStyle = color;
   if (team === 1) {
@@ -1979,6 +2229,23 @@ function drawSpawnPad(team) {
 function drawObstacles() {
   for (const o of obstacles) {
     ctx.save();
+    if (o.kind === 'arc') {
+      ctx.lineCap = 'round';
+      ctx.lineWidth = o.thickness + 7;
+      ctx.strokeStyle = 'rgba(2,4,13,0.38)';
+      ctx.beginPath(); ctx.arc(o.cx + 6, o.cy + 8, o.r, o.start, o.start + o.span); ctx.stroke();
+      ctx.lineWidth = o.thickness;
+      ctx.strokeStyle = MAPS[state.activeMap].accent;
+      ctx.beginPath(); ctx.arc(o.cx, o.cy, o.r, o.start, o.start + o.span); ctx.stroke();
+      ctx.lineWidth = o.thickness - 7;
+      ctx.strokeStyle = '#343e56';
+      ctx.beginPath(); ctx.arc(o.cx, o.cy, o.r, o.start, o.start + o.span); ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.beginPath(); ctx.arc(o.cx, o.cy, o.r - o.thickness * 0.3, o.start + 0.05, o.start + o.span - 0.05); ctx.stroke();
+      ctx.restore();
+      continue;
+    }
     ctx.fillStyle = 'rgba(2,4,13,0.42)';
     ctx.fillRect(o.x + 9, o.y + 12, o.w, o.h);
     const gradient = ctx.createLinearGradient(o.x, o.y, o.x, o.y + o.h);
@@ -2172,7 +2439,7 @@ function drawDebug() {
 }
 
 function drawCrosshair() {
-  if (!state.player?.alive || matchMedia('(pointer: coarse)').matches) return;
+  if (!state.player?.alive || state.mobileControls) return;
   const x = input.mouseX;
   const y = input.mouseY;
   const firing = input.mouseDown;
@@ -2264,8 +2531,7 @@ function drawMinimap() {
     }
   }
   mini.globalAlpha = 1;
-  mini.fillStyle = '#353b55';
-  for (const obstacle of obstacles) mini.fillRect(obstacle.x * sx, obstacle.y * sy, obstacle.w * sx, obstacle.h * sy);
+  drawTacticalTerrain(mini, obstacles, WORLD.w, WORLD.h, width, height);
 
   if (state.matchMode === 'zones') {
     for (const zone of state.zones) {
@@ -2392,10 +2658,30 @@ function toggleSound() {
   if (state.sound) sound.tick(true);
 }
 
+function setMobileControls(enabled, remember = true) {
+  state.mobileControls = Boolean(enabled);
+  document.body.classList.toggle('touch-mode', state.mobileControls);
+  dom.mobileBtn.setAttribute('aria-pressed', String(state.mobileControls));
+  dom.mobileBtn.querySelector('.button-label').textContent = state.mobileControls ? 'Mobile: ON' : 'Mobile mode';
+  input.moveTouch = { x: 0, y: 0 };
+  input.aimTouch = { x: 0, y: 0, active: false };
+  input.mouseDown = false;
+  input.pointerInside = false;
+  input.secondaryRequested = false;
+  input.specialRequested = false;
+  dom.moveStick.querySelector('i').style.transform = '';
+  dom.aimStick.querySelector('i').style.transform = '';
+  if (remember) {
+    try { localStorage.setItem('inkfront-mobile-controls', String(state.mobileControls)); } catch { /* Storage may be unavailable in local-file previews. */ }
+  }
+  resizeCanvas();
+}
+
 function setupStick(element, type) {
   let activePointer = null;
   const nub = element.querySelector('i');
   const update = (event) => {
+    if (!state.mobileControls || state.mode !== 'playing' || state.countdown > 0) return;
     const rect = element.getBoundingClientRect();
     const dx = event.clientX - (rect.left + rect.width / 2);
     const dy = event.clientY - (rect.top + rect.height / 2);
@@ -2419,6 +2705,7 @@ function setupStick(element, type) {
     else { input.aimTouch = { x: 0, y: 0, active: false }; input.mouseDown = false; }
   };
   element.addEventListener('pointerdown', (event) => {
+    if (!state.mobileControls || state.mode !== 'playing' || state.countdown > 0) return;
     event.preventDefault();
     activePointer = event.pointerId;
     element.setPointerCapture(event.pointerId);
@@ -2486,6 +2773,17 @@ document.querySelectorAll('[data-size]').forEach((button) => {
     sound.tick();
   });
 });
+document.querySelectorAll('[data-map]').forEach((button) => {
+  button.addEventListener('click', () => {
+    state.mapChoice = button.dataset.map;
+    document.querySelectorAll('[data-map]').forEach((item) => {
+      item.classList.toggle('selected', item === button);
+      item.setAttribute('aria-pressed', String(item === button));
+    });
+    updateSetupSummary();
+    sound.tick();
+  });
+});
 document.querySelectorAll('[data-step]').forEach((button) => {
   button.addEventListener('click', () => button.dataset.step === 'upgrade' ? beginUpgradeDraft() : setSetupStep(button.dataset.step));
 });
@@ -2501,6 +2799,7 @@ dom.pauseBtn.addEventListener('click', () => togglePause());
 dom.lockBtn.addEventListener('click', toggleAutoLock);
 dom.aiLensBtn.addEventListener('click', toggleAILens);
 dom.soundBtn.addEventListener('click', toggleSound);
+dom.mobileBtn.addEventListener('click', () => setMobileControls(!state.mobileControls));
 dom.mobileDash.addEventListener('pointerdown', (event) => { event.preventDefault(); input.dashRequested = true; });
 
 window.addEventListener('keydown', (event) => {
@@ -2559,5 +2858,10 @@ configureArena();
 renderCharacterPicker();
 setSetupStep('match');
 resetPaint();
+try {
+  const savedControls = localStorage.getItem('inkfront-mobile-controls');
+  if (savedControls !== null) state.mobileControls = savedControls === 'true';
+} catch { /* Use touch detection when storage is unavailable. */ }
+setMobileControls(state.mobileControls, false);
 resizeCanvas();
 requestAnimationFrame(loop);
