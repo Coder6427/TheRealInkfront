@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0c1020" />
+  <meta name="description" content="Inkfront Arena. Choose 1v1, 2v2, 3v3, or 4v4, pick a character, and claim the floor." />
+  <title>Inkfront Arena</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Inkfront Arena"><span class="brand-mark">◈</span><span><strong>INKFRONT</strong><small>ARENA</small></span></a>
+      <span id="formatBadge" class="format-badge">TEAM PAINTSPORT</span>
+      <nav class="top-actions" aria-label="Game options">
+        <button id="onlineBtn" class="icon-button online-button" type="button" aria-label="Play online with friends" title="Play online with friends"><span class="button-icon">◎</span><span class="button-label">Play online</span></button>
+        <button id="accountBtn" class="icon-button" type="button" aria-label="Sign in or create an account" title="Player account"><span class="button-icon">♙</span><span id="accountLabel" class="button-label">Sign in</span></button>
+        <button id="mobileBtn" class="icon-button" type="button" aria-pressed="false" title="Toggle mobile controls"><span class="button-icon">▣</span><span class="button-label">Mobile mode</span></button>
+        <button id="lockBtn" class="icon-button" type="button" aria-pressed="true" title="Auto-lock (Q)"><span class="button-icon">◇</span><span class="button-label">Aim assist</span></button>
+        <button id="aiLensBtn" class="icon-button" type="button" aria-pressed="false" title="AI lens (B)"><span class="button-icon">⌁</span><span class="button-label">AI lens</span></button>
+        <button id="soundBtn" class="icon-button" type="button" aria-pressed="true" title="Sound (M)"><span class="button-icon">◖</span><span class="button-label">Sound</span></button>
+        <button id="pauseBtn" class="icon-button" type="button" title="Pause (Esc)"><span class="button-icon">Ⅱ</span><span class="button-label">Pause</span></button>
+      </nav>
+    </header>
+
+    <section class="game-frame" aria-label="Inkfront Arena">
+      <canvas id="gameCanvas" tabindex="0" aria-label="WASD to move, mouse to aim, click to spray, E for secondary, F for special, Space to dash."></canvas>
+
+      <section id="matchHud" class="match-hud" aria-label="Match information">
+        <div class="score-ribbon">
+          <div class="team-score cyan-score"><span>VOLT</span><strong id="cyanPercent">0%</strong><div id="cyanRoster" class="roster" aria-label="Volt squad"></div></div>
+          <div class="match-clock"><small id="matchPhase">TERRITORY</small><strong id="timer">1:30</strong></div>
+          <div class="team-score coral-score"><span>FLARE</span><strong id="coralPercent">0%</strong><div id="coralRoster" class="roster" aria-label="Flare squad"></div></div>
+          <div class="territory-track" aria-label="Team score balance"><span id="cyanBar" class="cyan-fill"></span><span id="coralBar" class="coral-fill"></span></div>
+        </div>
+        <div id="eventFeed" class="event-feed" aria-live="polite"></div>
+
+        <aside class="minimap-shell" aria-label="Shared team map">
+          <header><span>TEAM MAP</span><strong id="minimapMode">TURF</strong></header>
+          <canvas id="minimapCanvas" width="180" height="180" aria-label="Allies and spotted rivals"></canvas>
+          <footer><span><i class="map-dot volt-dot"></i>Volt</span><span><i class="map-dot flare-dot"></i>Flare</span></footer>
+        </aside>
+        <aside id="aiPanel" class="ai-panel" aria-label="AI squad information">
+          <header><strong>Squad plans</strong><span id="difficultyBadge">TACTICAL</span></header>
+          <div id="aiCards" class="ai-cards"></div>
+        </aside>
+
+        <div class="combat-deck">
+          <div class="player-card">
+            <div class="player-label"><strong id="playerName">VEX // VOLT</strong><small id="upgradeBadge"></small></div>
+            <div class="meter-row"><span>HULL</span><div class="meter"><i id="healthBar"></i></div><b id="healthText">100</b></div>
+            <div class="meter-row"><span>INK</span><div class="meter"><i id="ammoBar"></i></div><b id="ammoText">100</b></div>
+          </div>
+          <button id="secondaryBtn" class="ability-button" type="button"><kbd>E</kbd><span><small>SECONDARY</small><strong id="secondaryName">Bankshot blade</strong><b id="secondaryStatus">READY</b></span></button>
+          <button id="specialBtn" class="ability-button special-button" type="button"><kbd>F</kbd><span><small>SPECIAL</small><strong id="specialName">Prism bloom</strong><b id="specialStatus">25%</b></span></button>
+          <div class="dash-status"><div id="dashRing"><kbd>SPACE</kbd></div><strong id="dashText">DASH READY</strong></div>
+        </div>
+        <div id="safeNotice" class="safe-notice" hidden><strong>⬡ SAFE ZONE · FAST RECOVERY</strong><span>Leave the ring to fire</span></div>
+        <div id="respawnNotice" class="respawn-notice" hidden><small>RESPAWNING · FOLLOWING YOUR SQUAD</small><strong id="respawnTimer">3.0</strong></div>
+      </section>
+
+      <section id="startScreen" class="setup-overlay">
+        <div class="setup-shell">
+          <nav class="setup-steps" aria-label="Setup steps">
+            <button type="button" data-step="match" class="active" aria-current="step"><b>01</b><span>Match</span></button>
+            <span class="step-line"></span>
+            <button type="button" data-step="character"><b>02</b><span>Character</span></button>
+            <span class="step-line"></span>
+            <button type="button" data-step="upgrade"><b>03</b><span>Upgrade</span></button>
+          </nav>
+          <header class="setup-heading"><h1 id="setupTitle">Set up your match</h1><p id="setupDescription">Pick your team size and rules. AI fills the other slots.</p><button id="onlineSetupBtn" class="online-entry" type="button">◎ Play with friends <span>Create or join an online room →</span></button></header>
+
+          <section id="setupMatch" class="setup-page">
+            <div class="match-layout">
+              <div class="match-options">
+                <fieldset><legend>TEAM SIZE</legend>
+                  <div class="size-picker choice-grid" role="group" aria-label="Team size">
+                    <button type="button" data-size="1" aria-pressed="false"><strong>1v1</strong><small>Duel</small></button>
+                    <button type="button" data-size="2" class="selected" aria-pressed="true"><strong>2v2</strong><small>Partners</small></button>
+                    <button type="button" data-size="3" aria-pressed="false"><strong>3v3</strong><small>Squads</small></button>
+                    <button type="button" data-size="4" aria-pressed="false"><strong>4v4</strong><small>Full teams</small></button>
+                  </div>
+                </fieldset>
+                <fieldset><legend>GAME MODE</legend>
+                  <div class="mode-picker choice-grid" role="group" aria-label="Game mode">
+                    <button type="button" data-mode="turf" class="selected" aria-pressed="true"><strong>Turf Claim</strong><small>Paint the most ground</small></button>
+                    <button type="button" data-mode="zones" aria-pressed="false"><strong>Sector Lock</strong><small>Capture & hold zones</small></button>
+                    <button type="button" data-mode="clash" aria-pressed="false"><strong>Team Clash</strong><small>First to 15 disables</small></button>
+                  </div>
+                </fieldset>
+                <fieldset><legend>MAP</legend>
+                  <div class="map-picker choice-grid" role="group" aria-label="Choose a map">
+                    <button type="button" data-map="switchyard" class="selected" aria-pressed="true"><strong>Switchyard</strong><small>Industrial lanes</small></button>
+                    <button type="button" data-map="crescent" aria-pressed="false"><strong>Crescent Court</strong><small>Half-moon cover</small></button>
+                    <button type="button" data-map="breakwater" aria-pressed="false"><strong>Breakwater</strong><small>Winding docks</small></button>
+                    <button type="button" data-map="random" aria-pressed="false"><strong>↝ Random</strong><small>Surprise me</small></button>
+                  </div>
+                </fieldset>
+                <div class="settings-row">
+                  <fieldset><legend>YOUR TEAM</legend><div class="team-picker choice-grid" role="group" aria-label="Your team">
+                    <button type="button" class="team-choice cyan-choice selected" data-team="1" aria-pressed="true"><strong>◇ Volt</strong><i>SELECTED</i></button>
+                    <button type="button" class="team-choice coral-choice" data-team="2" aria-pressed="false"><strong>● Flare</strong><i>JOIN</i></button>
+                  </div></fieldset>
+                  <fieldset><legend>RIVAL AI</legend><div class="difficulty-picker choice-grid" role="group" aria-label="Rival difficulty">
+                    <button type="button" data-difficulty="rookie" aria-pressed="false">Rookie</button>
+                    <button type="button" data-difficulty="tactical" class="selected" aria-pressed="true">Tactical</button>
+                    <button type="button" data-difficulty="elite" aria-pressed="false">Elite</button>
+                  </div></fieldset>
+                </div>
+              </div>
+              <aside class="arena-card">
+                <canvas id="arenaPreview" class="arena-preview" width="320" height="180" aria-label="Map layout preview with protected team spawn zones"></canvas>
+                <small>AUTO-SIZED ARENA</small><h2 id="mapName">Switchyard</h2><b id="mapDimensions">Standard · 1,600 × 900</b><p id="mapDetail">Room for a partner and coordinated flanks.</p>
+                <div class="arena-note">Cover shifts a little each round. 3v3 and 4v4 use larger arenas. Colored rings are protected spawn zones.</div>
+              </aside>
+            </div>
+          </section>
+
+          <section id="setupCharacter" class="setup-page" hidden>
+            <div class="character-layout"><div><p class="section-label">YOUR SPECIALIST</p><div id="characterPicker" class="character-picker" role="group" aria-label="Choose a character"></div><p class="quiet-note">Your AI teammates choose different characters to complete the squad.</p></div><div id="characterDetails" class="character-details" aria-live="polite"></div></div>
+          </section>
+
+          <section id="upgradeScreen" class="setup-page" hidden>
+            <div class="upgrade-note"><span>ONE BONUS</span><p>Your upgrade lasts the whole match, including respawns. Bots get one too.</p></div>
+            <div id="upgradeChoices" class="upgrade-choices" role="group" aria-label="Choose one of three upgrades"></div>
+          </section>
+
+          <footer class="setup-footer"><div><small>YOUR MATCH</small><p id="setupSummary">2v2 · TURF CLAIM · VEX · VOLT</p></div><div class="setup-footer-actions"><button id="upgradeBackBtn" class="text-button" type="button" hidden>← Back</button><button id="deployBtn" class="primary-button" type="button">Choose character →</button></div></footer>
+        </div>
+      </section>
+
+      <section id="pauseScreen" class="modal-overlay" hidden><div class="modal-card"><span class="eyebrow">MATCH PAUSED</span><h2>Take a breath.</h2><p>Your squad will continue where you left off.</p><button id="resumeBtn" class="primary-button" type="button">Resume match</button><button id="restartPauseBtn" class="text-button" type="button">Restart with a new upgrade</button></div></section>
+      <section id="resultScreen" class="modal-overlay" hidden><div class="modal-card result-card"><span id="resultKicker" class="eyebrow">FINAL SCORE</span><h2 id="resultTitle">VOLT WINS.</h2><div class="result-score"><div class="result-cyan"><small>VOLT</small><strong id="resultCyan">0%</strong></div><span>vs</span><div class="result-coral"><small>FLARE</small><strong id="resultCoral">0%</strong></div></div><p id="resultSummary"></p><button id="rematchBtn" class="primary-button" type="button">Play again</button><button id="setupBtn" class="text-button" type="button">Change match settings</button></div></section>
+
+      <div class="mobile-controls" aria-label="Touch controls"><div id="moveStick" class="touch-stick"><span>MOVE</span><i></i></div><button id="mobileDash" type="button">DASH</button><div id="aimStick" class="touch-stick"><span>AIM / FIRE</span><i></i></div></div>
+      <div class="touch-hints" aria-hidden="true"><span>LEFT SIDE · DRAG TO MOVE</span><span>RIGHT SIDE · DRAG TO AIM / FIRE</span></div>
+      <div id="networkBadge" class="network-badge" hidden role="status">ONLINE</div>
+
+      <section id="accountDialog" class="network-overlay" role="dialog" aria-modal="true" aria-labelledby="accountTitle" hidden>
+        <div class="network-card account-card"><button class="dialog-close" type="button" data-close-network aria-label="Close account">×</button>
+          <span class="eyebrow">YOUR INKFRONT ID</span><h2 id="accountTitle">Welcome to the squad.</h2>
+          <div id="authTabs" class="network-tabs"><button id="loginTab" type="button" class="selected">Sign in</button><button id="signupTab" type="button">Create account</button></div>
+          <form id="authForm" class="network-form">
+            <label>USERNAME<input id="authUsername" name="username" autocomplete="username" minlength="3" maxlength="20" pattern="[A-Za-z0-9_]{3,20}" required placeholder="Your player name" /></label>
+            <label>PASSWORD<input id="authPassword" name="password" type="password" autocomplete="current-password" minlength="10" maxlength="128" required placeholder="At least 10 characters" /></label>
+            <button id="authSubmit" class="primary-button" type="submit">Sign in</button>
+            <p class="network-note">Usernames use letters, numbers or underscores. No email is collected. Keep your password safe: email recovery is not included.</p>
+          </form>
+          <div id="accountProfile" hidden><p id="profileName" class="profile-name"></p><div id="profileStats" class="profile-stats"></div>
+            <button id="profileOnlineBtn" class="primary-button" type="button">Find your squad →</button>
+            <details class="password-settings"><summary>Change password</summary><form id="passwordForm" class="network-form"><label>CURRENT PASSWORD<input id="currentPassword" type="password" autocomplete="current-password" maxlength="128" required /></label><label>NEW PASSWORD<input id="newPassword" type="password" autocomplete="new-password" minlength="10" maxlength="128" required /></label><button id="passwordSubmit" class="text-button" type="submit">Save new password</button></form></details>
+            <button id="logoutBtn" class="text-button" type="button">Sign out</button>
+          </div><p id="authMessage" class="network-message" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+      <section id="onlineDialog" class="network-overlay" role="dialog" aria-modal="true" aria-labelledby="onlineTitle" hidden>
+        <div class="network-card room-card"><button class="dialog-close" type="button" data-close-network aria-label="Close online lobby">×</button>
+          <header class="network-heading"><div><span class="eyebrow">REAL PLAYERS. SHARED BATTLEFIELD.</span><h2 id="onlineTitle">Bring your squad.</h2></div><span id="connectionStatus" class="connection-status">OFFLINE</span></header>
+          <div id="onlineGate" hidden><p id="onlineGateText" class="network-note"></p><button id="onlineSignInBtn" class="primary-button" type="button">Sign in / create account</button></div>
+          <div id="onlineHome" hidden><div class="room-entry-grid">
+            <form id="createRoomForm" class="network-form room-entry"><h3>Create a room</h3><p class="network-note">Choose the rules. Invite friends with a private code. Bots fill empty slots.</p>
+              <div class="network-field-pair"><label>FORMAT<select id="onlineSize"><option value="1">1v1</option><option value="2" selected>2v2</option><option value="3">3v3 · bigger map</option><option value="4">4v4 · biggest map</option></select></label><label>MODE<select id="onlineMode"><option value="turf">Turf Claim</option><option value="zones">Sector Lock</option><option value="clash">Team Clash</option></select></label></div>
+              <div class="network-field-pair"><label>MAP<select id="onlineMap"><option value="switchyard">Switchyard</option><option value="crescent">Crescent Court</option><option value="breakwater">Breakwater</option><option value="random">Random</option></select></label><label>BOTS<select id="onlineDifficulty"><option value="rookie">Rookie</option><option value="tactical" selected>Tactical</option><option value="elite">Elite</option></select></label></div>
+              <button class="primary-button" type="submit">Create room →</button>
+            </form>
+            <form id="joinRoomForm" class="network-form room-entry"><h3>Join a friend</h3><p class="network-note">Enter their six-character room code. Use the same game website.</p><label>ROOM CODE<input id="joinCode" autocomplete="off" maxlength="6" minlength="6" pattern="[A-Za-z2-9]{6}" required placeholder="ABC234" /></label><button class="primary-button" type="submit">Join room →</button><p class="network-note">Mobile and desktop players play together. Every human needs their own account.</p></form>
+          </div></div>
+          <div id="roomLobby" hidden><div class="room-code-row"><div><small>INVITE CODE</small><strong id="roomCode"></strong></div><button id="copyRoomBtn" class="text-button" type="button">Copy code</button><p id="roomRules"></p></div>
+            <div class="room-teams"><div><h3 class="volt-heading">◇ VOLT</h3><div id="roomVolt"></div></div><div><h3 class="flare-heading">● FLARE</h3><div id="roomFlare"></div></div></div>
+            <div id="onlineLoadout"><div class="network-field-pair"><label>YOUR TEAM<select id="roomTeam"><option value="1">◇ Volt</option><option value="2">● Flare</option></select></label><label>YOUR CHARACTER<select id="roomCharacter"></select></label></div><p id="onlineHeroDetail" class="network-note"></p><h3 class="upgrade-heading">CHOOSE ONE UPGRADE</h3><div id="onlineUpgradeChoices" class="online-upgrades"></div></div>
+            <div class="room-footer"><button id="leaveRoomBtn" class="text-button" type="button">Leave room</button><div><button id="readyRoomBtn" class="secondary-button" type="button">Ready up</button><button id="startRoomBtn" class="primary-button" type="button">Deploy squad →</button><button id="returnMatchBtn" class="primary-button" type="button" hidden>Return to match</button><button id="reopenRoomBtn" class="primary-button" type="button" hidden>New round →</button></div></div>
+            <p id="roomHint" class="network-note"></p>
+          </div>
+          <p id="onlineMessage" class="network-message" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+    </section>
+    <footer class="control-deck"><span><kbd>WASD</kbd> Move</span><span><kbd>MOUSE</kbd> Aim & spray</span><span><kbd>SPACE</kbd> Dash</span><span><kbd>E</kbd> Secondary</span><span><kbd>F</kbd> Special</span><span><kbd>Q</kbd> Aim assist</span></footer>
+  </main>
+  <noscript>This game needs JavaScript enabled.</noscript>
+  <script src="./arsenal.js"></script>
+  <script src="./game.js"></script>
+  <script src="./online.js"></script>
+</body>
+</html>
