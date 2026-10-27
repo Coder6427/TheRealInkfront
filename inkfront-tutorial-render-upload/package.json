@@ -1,0 +1,21 @@
+{
+  "name": "inkfront-arena",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Inkfront Arena: offline and server-authoritative online ink battles",
+  "engines": {
+    "node": ">=24.14.0 <25"
+  },
+  "scripts": {
+    "start": "node server/index.mjs",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+  },
+  "dependencies": {
+    "pg": "8.23.1",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "happy-dom": "21.0.4"
+  }
+}

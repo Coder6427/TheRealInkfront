@@ -1,0 +1,18 @@
+# Deploy this repository as a Node Web Service, not a Static Site.
+# Supply an existing durable Postgres connection URL; no paid DB is created here.
+services:
+  - type: web
+    name: inkfront-arena
+    runtime: node
+    plan: free
+    numInstances: 1
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 24.22.1
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
